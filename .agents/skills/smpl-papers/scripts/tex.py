@@ -1,4 +1,4 @@
-"""Build a reviewed manuscript with native TeX or TeX in WSL."""
+"""Compile a review preview and publish the exact PDF that passed review."""
 
 import argparse
 from io import BytesIO
@@ -9,9 +9,11 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
+from uuid import uuid4
 from zipfile import ZipFile
 
 import run
+from records import json_hash, write_json
 
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
@@ -98,7 +100,65 @@ def compile_pdf(directory, log, distro):
     return pdf
 
 
-def build(root, distro, cache):
+def render_pages(pdf, destination):
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise ValueError("Install requirements-visual.txt to render PDF pages for review.") from exc
+    pages = []
+    with pymupdf.open(stream=pdf, filetype="pdf") as document:
+        for index, page in enumerate(document, 1):
+            name = f"page-{index}.png"
+            page.get_pixmap(dpi=120, alpha=False).save(destination / name)
+            pages.append(name)
+    if not pages:
+        raise ValueError("No pages rendered.")
+    return pages
+
+
+def preview(root, distro, cache):
+    manifest = run.load_json(root / "run.json")
+    if manifest["mode"] != "writing" or not run.current(root, manifest, "draft"):
+        raise ValueError("A current draft is required to compile a preview.")
+    key = uuid4().hex
+    prefix = "previews/" + key
+    folder = root / prefix
+    folder.mkdir(parents=True)
+    log = folder / "build.log"
+    log.touch()
+    source = folder / "source"
+    source.mkdir()
+    try:
+        prepare_template(manifest["template"], source, cache)
+        for name in ("title.tex", "body.tex", "references.bib"):
+            shutil.copyfile(root / name, source / name)
+        for figure in run.get_records(root, "figures.json", "figures"):
+            name = run.local_file(root, figure["path"], "figures")
+            (source / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / name, source / name)
+        with TemporaryDirectory(prefix=".compile-", dir=root) as temp:
+            workspace = Path(temp)
+            shutil.copytree(source, workspace, dirs_exist_ok=True)
+            pdf = compile_pdf(workspace, log, distro)
+        pages = render_pages(pdf, folder)
+        run.write_atomic(folder / "paper.pdf", pdf)
+        if not run.current(root, manifest, "draft"):
+            raise ValueError("Draft inputs changed during compilation.")
+        info = {"id": key, "draft_hash": json_hash(manifest["stages"]["draft"]["fingerprint"]),
+                "pdf": prefix + "/paper.pdf", "sha256": run.digest(pdf),
+                "pages": [f"{prefix}/{p}" for p in pages],
+                "sources": sorted(p.relative_to(root).as_posix() for p in source.rglob("*") if p.is_file())}
+        (root / "reviews" / key).mkdir(parents=True)
+        write_json(root / "preview.json", info)
+        run.mark(root, manifest, "preview")
+        return info
+    except Exception as exc:
+        with log.open("a", encoding="utf-8") as output:
+            output.write(f"\nPreview failed: {exc}\n")
+        raise ValueError(f"Preview failed. See {log}: {exc}") from exc
+
+
+def build(root, distro=None, cache=None):
     manifest = run.load_json(root / "run.json")
     if manifest["mode"] != "writing" or not run.current(root, manifest, "review"):
         raise ValueError("A current approved writing review is required to build.")
@@ -110,34 +170,35 @@ def build(root, distro, cache):
     published_pdf = root / "paper.pdf"
     if published_pdf.exists():
         published_pdf.replace(root / "paper.previous.pdf")
+    wrote_pdf = False
     try:
-        with TemporaryDirectory(prefix=".tex-", dir=root) as build_path:
+        info = run.load_json(root / "preview.json")
+        folder = (root / info["pdf"]).parent
+        with TemporaryDirectory(prefix=".publish-", dir=root) as build_path:
             workspace = Path(build_path)
-            source = workspace / "source"
-            source.mkdir()
-            profile = manifest["template"]
-            prepare_template(profile, source, cache)
-            for item in ("title.tex", "body.tex", "references.bib"):
-                shutil.copyfile(root / item, source / item)
-            # Copy only figures checked in the handoff manifest.
-            for figure in run.get_records(root, "figures.json", "figures"):
-                item = run.local_file(root, figure["path"], "figures")
-                (source / item).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(root / item, source / item)
-            shutil.copytree(source, workspace / "compile")
-            pdf = compile_pdf(workspace / "compile", log, distro)
+            source = workspace / "latex-source"
+            shutil.copytree(folder / "source", source)
+            pdf = (folder / "paper.pdf").read_bytes()
+            if run.digest(pdf) != info["sha256"]:
+                raise ValueError("Reviewed PDF changed.")
             if not run.current(root, manifest, "review"):
-                raise ValueError("The reviewed inputs changed during compilation. Run review again.")
+                raise ValueError("Reviewed inputs changed during publication.")
+            shutil.copyfile(folder / "build.log", log)
             archive = root / "latex-source"
-            archive.mkdir(exist_ok=True)
-            for file in source.rglob("*"):
-                if file.is_file():
-                    destination = archive / file.relative_to(source)
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    run.write_atomic(destination, file.read_bytes())
+            if archive.exists():
+                archive.replace(workspace / "previous-source")
+            try:
+                source.replace(archive)
+            except OSError:
+                if (workspace / "previous-source").exists():
+                    (workspace / "previous-source").replace(archive)
+                raise
             run.write_atomic(published_pdf, pdf)
+            wrote_pdf = True
             run.mark(root, manifest, "build")
     except Exception as exc:
+        if wrote_pdf:
+            published_pdf.unlink(missing_ok=True)
         with log.open("a", encoding="utf-8") as output:
             output.write(f"\nBuild failed: {exc}\n")
         raise
@@ -146,14 +207,19 @@ def build(root, distro, cache):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    build_command = commands.add_parser("build")
-    build_command.add_argument("run", type=Path)
-    build_command.add_argument("--wsl-distro", help="Use this WSL distribution on Windows.")
-    build_command.add_argument("--cache", type=Path, default=Path(".template-cache"))
+    for name in ("preview", "build"):
+        command = commands.add_parser(name)
+        command.add_argument("run", type=Path)
+        command.add_argument("--wsl-distro", help="Use this WSL distribution to compile the preview.")
+        command.add_argument("--cache", type=Path, default=Path(".template-cache"))
     args = parser.parse_args()
     try:
-        build(args.run.resolve(), args.wsl_distro, args.cache.resolve())
-        print(args.run.resolve() / "paper.pdf")
+        root = args.run.resolve()
+        if args.command == "preview":
+            print(root / preview(root, args.wsl_distro, args.cache.resolve())["pdf"])
+        else:
+            build(root, args.wsl_distro, args.cache.resolve())
+            print(root / "paper.pdf")
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

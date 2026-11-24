@@ -1,73 +1,48 @@
 # SMPL Papers
 
-SMPL Papers is a Codex skill for planning experiments and turning research evidence into reviewed LaTeX manuscripts and PDFs. It connects manuscript claims to the measurements or published sources that support them and preserves the intermediate files so a run can be inspected or resumed.
+SMPL Papers is a Codex skill for planning experiments, running registered trials, and turning research evidence into reviewed LaTeX papers. Each run keeps its measurements, source passages, figures, manuscript versions and review decisions together.
 
-## Quick start
+## Get started
 
-1. Clone `smpl-works-hq/SMPL-Papers` and open the clone in Codex. The project skill is in `.agents/skills/smpl-papers/`. To use it in another project, copy that skill folder into the target project's `.agents/skills/` and open the project in Codex.
-2. Install Python 3.10 or later for the checkpoint and build helpers. PDF production also needs `pdflatex`, `bibtex`, and the usual LaTeX packages for the selected profile. On Windows, the build helper can use native TeX or WSL. On Ubuntu, the TeX Live base, recommended, extra, and recommended fonts packages cover the bundled profiles.
-3. Attach your files or give Codex their paths. Invoke the skill with a goal and, for a manuscript, a template preference. Use UTF-8 text where possible. The intake helper also accepts Windows-1252 with `--encoding cp1252`.
+Open the cloned project in Codex, or copy `.agents/skills/smpl-papers/` into another project's `.agents/skills/` folder. The helpers use Python 3.10+. For plots, PDF reading and page rendering, install the visual dependencies in your Python environment. Manuscript compilation requires `pdflatex`, `bibtex` and the TeX packages for the chosen profile. On Windows you can run the workflow inside WSL or select a WSL TeX installation for the preview.
 
-The default writing example uses synthetic measurements and a fixed literature corpus.
+```sh
+python -m pip install -r .agents/skills/smpl-papers/requirements-visual.txt
+```
 
-> Use `$smpl-papers` to draft and review a short paper from the files in `examples/lookup/`. Use the fixed citation fixture and the starter LaTeX template.
-
-> Use SMPL Papers to plan the experiment in `examples/planning/question.md`. Produce the protocol and evidence checklist.
-
-Add “use Codex subagents” to the prompt if you want the parallel literature and figure assignments and a reviewer with fresh context. A single assistant can carry out all stages. Codex handles the reasoning and writing in the active chat. The Python helpers run locally and need only the standard library. Figure generation may use plotting tools available in your environment.
-
-## What each mode does
-
-| Mode | Inputs | Outputs |
+| Goal | Example request | Deliverables |
 | --- | --- | --- |
-| Writing | Research notes, existing experiment results, data and figures, an optional citation corpus, and a template choice | Outline, claim and citation records, figures with sources, LaTeX, review reports, PDF, and build log |
-| Research planning | A research question, available resources, and constraints | `protocol.md` and `evidence-checklist.md` with hypotheses, controls, baselines, metrics, and a decision rule |
+| Plan | “Use SMPL Papers to design a test for `examples/planning/question.md`.” | Protocol, controls, metrics, decision rule, and evidence checklist |
+| Experiment | “Run the lookup experiment in `examples/planning/` using its measurement script and registered-trial specification. Explain the outcome.” | Registration, command, logs, raw metrics, outcome, and findings |
+| Manuscript | “Draft and review a short paper from `examples/lookup/` using the fixed citation fixture and starter template.” | Reviewed PDF, editable LaTeX, source records, figures, and versioned reviews |
 
-Research planning produces a protocol for the researcher to execute. Writing draws numerical claims from supplied evidence and flags gaps and limitations.
+## How a manuscript is produced
 
-## Manuscript workflow
+1. **Outline.** The coordinator inventories claims and assigns literature queries and figures to individual sections.
+2. **Search and figures.** A local command runs scholarly discovery and figure rendering concurrently. The literature role verifies selected passages against primary HTML, text or PDF, retrieves DOI metadata and BibTeX when available, and writes a section synthesis. The figure role produces plots or diagrams, or inspects supplied graphics, and checks each against its source.
+3. **Writing.** The writer uses verified citations, the section synthesis, original measurements and approved figures. Checkpoints detect changed inputs and support resumption.
+4. **Review.** TeX produces a candidate PDF and an image of every page. Methods, evidence, presentation and layout readers score the same version and identify changes by location. Significant open findings block approval. Each revision gets its own PDF, images, scores and decision.
+5. **Delivery.** Publication copies the exact approved PDF and its matching editable sources. The run retains previous versions and their evidence.
 
-1. **Coordinator.** Inventories source files, records the basis for each substantive claim, and prepares an outline for the selected venue.
-2. **Literature and figures.** The literature role verifies source identity and support for the cited statement. It saves a bibliography and a record of the supporting passages. The figure role works from supplied measurements, recording the data source and any script used to generate each figure.
-3. **Writer.** Drafts the methods, results, and argument using the outline and verified evidence. The manuscript should agree with the measurements in the tables and figures.
-4. **Reviewer.** Checks scope, data, claims, citations, experimental design, and limitations. The writer can make up to two revisions. Significant unresolved findings block the build and remain visible in the review report.
-5. **Production.** Compiles the approved version with LaTeX and BibTeX. It checks references and verifies that the build produced a fresh PDF. Codex inspects the PDF and reports any remaining issues.
+Codex performs the roles in one chat by default. Ask for subagents to delegate literature and figure work and obtain independent reviewers. The scheduler reads the run's checkpoints and returns ready assignments with their prompts. Role briefs automatically select an available specialist for the assignment, including training, evaluation and tracking work in experiment mode.
 
-## Files and resumption
+## Configuration
 
-Each run defaults to `.smpl-runs/<name>/`. The run manifest and source snapshots stay in that directory. Stage results include `claims.json`, `literature.json`, `figures.json`, `review.json`, and, for a successful build, `paper.pdf` and `latex-source/`. Keep the rest of the run directory for figures that use reusable scripts and source measurements.
+Live discovery uses Crossref and Semantic Scholar. Optionally set `S2_API_KEY` for Semantic Scholar. Select `--provider google` with `GEMINI_API_KEY` and `SMPL_SEARCH_MODEL` for Google-grounded discovery. Crossref supplies registry metadata and DOI BibTeX. Fixture mode verifies a supplied corpus offline and labels its evidence accordingly.
 
-To resume, ask Codex to continue a named run. The coordinator refreshes changed source files, checks status, and resumes from the earliest stale or missing checkpoint. A changed draft invalidates the prior approval. A failed rebuild leaves its error in `build.log` and retains the previously generated PDF as `paper.previous.pdf`.
+The `starter` article profile is bundled. `cvpr2025` and `iclr2025` download and checksum their official author kits on first use. Select a profile appropriate to the intended venue and submission year.
 
-```sh
-python .agents/skills/smpl-papers/scripts/run.py refresh .smpl-runs/my-paper
-python .agents/skills/smpl-papers/scripts/run.py status .smpl-runs/my-paper
-python .agents/skills/smpl-papers/scripts/tex.py build .smpl-runs/my-paper
-```
+The [workflow guide](.agents/skills/smpl-papers/references/workflow.md) covers commands, file formats, source verification, figure critique, scored PDF review, trial execution and resuming earlier runs. The [role prompts](.agents/skills/smpl-papers/references/prompts.md) show what each Codex role reads, checks and delivers.
 
-On Windows, add `--wsl-distro Ubuntu-22.04` to choose that specific WSL distribution, or omit it to prefer native TeX. See the skill's [workflow and artifact contracts](.agents/skills/smpl-papers/references/workflow.md) for diagnostics and file formats.
-
-## Templates
-
-| Profile | Use |
-| --- | --- |
-| `starter` | A bundled article template for drafts and general reports |
-| `cvpr2025` | CVPR 2025 review styling from the official author kit |
-| `iclr2025` | ICLR 2025 styling from the official author kit |
-
-The venue profiles fetch pinned, checksum-verified archives on first use, then reuse the cache. Author kit files retain their upstream notices and terms. The template profiles use archived formatting rules. Check page limits, anonymity, and any submission requirements against the intended venue and year.
-
-## Tests
+## Verification
 
 ```sh
-python -m unittest discover -s tests -v
-python tests/smoke_pdf.py
+python -m unittest discover -s tests
+python tests/smoke_pdf.py --profiles starter
 ```
 
-The first command checks intake, checkpoint invalidation, citations, review gating, author-kit integrity, and build failure behavior. The second compiles a small cited manuscript with each profile. For WSL, use `python tests/smoke_pdf.py --wsl-distro Ubuntu-22.04`. Use `--profiles starter` to run just the bundled template without fetching venue archives.
-
-The initial release passed eight focused tests and compiled and visually checked a PDF for each profile. A live Codex smoke test exercised the literature, figure, writing, and independent review handoffs on the synthetic example. The reviewer flagged an unsupported generalization and approved the revision after it was removed. The planning smoke test produced a protocol and evidence checklist from a question with no results.
+The automated checks cover provider responses, citation integrity, checkpoint invalidation, figure review, PDF approval and registered experiment execution. The smoke command compiles and renders a synthetic cited manuscript. Add `--output PATH` to retain its review artifacts.
 
 ## License
 
-The original project files are licensed under the [MIT License](LICENSE).
+[MIT License](LICENSE).

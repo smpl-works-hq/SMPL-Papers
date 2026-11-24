@@ -1,0 +1,9 @@
+{
+  "id": "lookup-1",
+  "hypothesis": "An index reduces median batch lookup time on the fixed 4096-row workload.",
+  "metric": "speedup",
+  "favorable": 1.2,
+  "unfavorable": 1.0,
+  "command": ["python", "materials/measure.py"],
+  "timeout_seconds": 60
+}

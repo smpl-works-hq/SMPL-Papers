@@ -1,58 +1,100 @@
 # Workflow and handoffs
 
-Use a run directory distinct from the source materials. The Python commands work through Python 3.10 or later. Examples use `python` and project-relative paths from the repository root.
+Resolve the commands below under this skill's `scripts/` directory. `RUN` is a directory in the user's project. The coordinator owns checkpoints. Worker roles write separate artifacts. `run.py brief RUN ROLE` expands the [role prompt](prompts.md) with run paths and an installed specialist. Add `--skills-dir PATH` for another installation or `--specialty training|evaluation|tracking|systems` for a specialist task. The resolver searches project and user skill directories by frontmatter name.
 
-```text
-python .agents/skills/smpl-papers/scripts/run.py init .smpl-runs/paper --mode writing --template starter path/to/notes.md path/to/results.csv
-python .agents/skills/smpl-papers/scripts/run.py status .smpl-runs/paper
-python .agents/skills/smpl-papers/scripts/run.py mark .smpl-runs/paper outline
-python .agents/skills/smpl-papers/scripts/tex.py build .smpl-runs/paper
-python .agents/skills/smpl-papers/scripts/run.py refresh .smpl-runs/paper
+## Run commands
+
+`run.py next RUN` reads actual checkpoint and review state. It returns the ready worker prompts and the applicable helper. When both branches are ready their assignments are listed together. Commands in the helper field operate on the same run directory.
+
+```sh
+python run.py init RUN --mode writing --template starter notes.md results.csv
+python run.py brief RUN outline
+python run.py mark RUN outline
+python run.py prepare RUN
+python sources.py verify RUN
+python run.py mark RUN literature
+python run.py mark RUN figures
+python run.py mark RUN draft
+python tex.py preview RUN
+python reviews.py RUN
+python run.py mark RUN review
+python tex.py build RUN
 ```
 
-The coordinator alone updates checkpoints with `mark` after inspecting a stage's output. Add `--encoding cp1252` at initialization for Windows-1252 text. The default accepts UTF-8 with or without a BOM. Other supplied files are copied byte-for-byte. Each material needs a distinct basename. The initial paths in the run manifest are local and are used by `refresh` to copy changed inputs. Run `refresh` and then `status` before resuming. Keep the manifest and work directory with the project.
+Perform the corresponding writing or inspection assignment before each checkpoint. Intake snapshots inputs with distinct basenames into `materials/`. For a chat-only question save a Markdown input first. Use `--encoding cp1252` for Windows-1252 text. Run `refresh` and `status` to resume. A changed source invalidates dependent checkpoints. First-version writing checkpoints appear stale. Reuse the original inputs and manuscript, add the new workplan and evidence records, and render a fresh preview before publishing again. Planning runs retain their original two deliverables.
 
-| Stage | Uses | Produces inside the run directory |
-|---|---|---|
-| Plan | Research question and any supplied resources | `protocol.md` and `evidence-checklist.md` |
-| Outline | Materials and venue | `outline.md` and `claims.json` |
-| Literature | Outline, publications, and any supplied citation corpus | `literature.json` and `references.bib` |
-| Figures | Outline and measured data | `figures.json`, figure files in `figures/`, and any source scripts or data references |
-| Draft | Outline, claims, literature, and figures | `title.tex` and `body.tex` |
-| Review | Draft, supporting evidence, and venue | `review.json`, plus earlier round reports under `reviews/` |
-| Build | Reviewed draft and selected template | `paper.pdf` and `build.log` |
+## Outline and parallel work
 
-Write JSON as UTF-8. Example records below describe the minimum contracts. The helper validates evidence file presence, stage freshness, and the use of verified bibliography keys. It does not judge scientific validity or whether a paper supports a statement.
+Write `outline.md` and `claims.json`. Each member of `claims` has an `id`, `kind` and `statement`. A measured claim includes `evidence` entries such as `{"file":"results.csv","locator":"run 1, candidate_ms"}`. Other kinds are `literature`, `interpretation` and `hypothesis`.
+
+`workplan.json` assigns work by section. `cutoff` is an optional inclusive ISO publication date. Default `citation_mode` is `live`. Use `fixture` for an explicitly supplied fixed corpus.
 
 ```json
-{"claims":[{"id":"C1","kind":"measured","statement":"Condition A had a score of 3 on this fixture.","evidence":[{"file":"results.csv","locator":"row A, score column"}]}]}
+{
+  "citation_mode": "live",
+  "sections": [
+    {"id":"methods","title":"Methods","queries":["measurement of lookup latency"]},
+    {"id":"results","title":"Results","queries":[]}
+  ],
+  "figures": [
+    {"id":"latency","section":"results","kind":"plot","source":"materials/results.csv",
+     "caption":"Candidate latency by run.","style":"bar","x":"run","y":"candidate_ms",
+     "xlabel":"Run","ylabel":"Latency (ms)"}
+  ]
+}
 ```
 
-Claim kinds are `measured`, `literature`, `interpretation`, and `hypothesis`. Give measured claims an input material and locator. Literature claims may point to a verified citation by adding a `key` and `locator` in their evidence item. Describe interpretation as such and trace it to its basis. Exclude unsupported numbers, authorship, and results. The record may include tentative claims, but only supported claims belong in the manuscript as facts.
+`prepare` dispatches both branches concurrently. Retry one branch with `sources.py search RUN` or `figures.py RUN`. Default discovery tries Crossref and Semantic Scholar, deduplicates candidates per query and records provider failures in `discovery.json`. Select `--provider crossref` or `semantic-scholar` for one index. `S2_API_KEY` is optional. Explicit `--provider google` uses Gemini search grounding and checks returned titles against Crossref. Set `GEMINI_API_KEY` and `SMPL_SEARCH_MODEL` to a search-capable model enabled on the account. Remote discovery sends the section queries. Fixture mode performs discovery and verification offline.
+
+## Literature
+
+Read primary publications and write `citation-requests.json`. Each entry names the work as identified by its source, an exact excerpt, its location, the claim it supports and the section. Supply a primary HTML, text or PDF URL. For a paywall or mismatch, find an accessible copy of the same work or record the gap in `related-work.md`. Use an empty sources list when no citations apply.
 
 ```json
-{"sources":[{"key":"example","url":"https://example.org/paper","locator":"Section 2, paragraph 1","supports":"Description of the practice supported by the source.","verified":true}]}
+{"sources":[{"key":"rfc8259","section":"methods","title":"The JavaScript Object Notation (JSON) Data Interchange Format","doi":"10.17487/RFC8259","url":"https://www.rfc-editor.org/rfc/rfc8259.txt","locator":"Abstract","quote":"JSON defines a small set of formatting rules","supports":"The specification defines JSON formatting rules."}]}
 ```
 
-Verify records against primary sources and write matching entries to `references.bib`. Log unverified candidates in the literature record with `verified: false`. Exclude their keys from the bibliography and manuscript. Use standard LaTeX citations such as `\cite{key}`, `\citet{key}`, and `\citep{key}`. An empty bibliography and sources list are valid if there are no verified references.
+`sources.py verify RUN` retrieves the primary document and checks identity and passage presence. For a DOI it also retrieves the registry entry and BibTeX from Crossref. For a source without a DOI it generates a URL entry using its checked title. With a cutoff, supply a source-visible ISO `published` date when registry metadata lacks a usable date. Fixture entries add `"fixture":"materials/literature-fixture.md"`. `literature.json`, `references.bib` and content-addressed `receipts/` capture the results. The reader judges whether the passage supports the scientific claim. Write a section-by-section `related-work.md` with verified keys, close alternatives and remaining gaps.
+
+For URL entries, optional `author` and `year` strings must appear in the supplied or retrieved document. Preserve an institutional author when available. For a cutoff, the source must identify the date as its publication or issue date. A PDF locator such as `p. 3` also checks that the excerpt occurs on that PDF page.
+
+## Figures
+
+A `plot` takes CSV columns, axis labels and `style` of `bar` or `line`. Lines use numeric x coordinates. A `diagram` takes a list of distinct `nodes` and `edges` as pairs of labels. A `supplied` figure preserves an input PDF, PNG, or JPEG. A `custom` figure specifies an existing `file` and reproducible `script` in `figures/`. Generate these custom files before `prepare` or retry the figure branch afterwards. Each figure needs an input material, section and caption.
+
+An `illustration` assigns a `file` and a `prompt` path under `figures/`. The figure role uses the host's image-generation tool and records both. `prepare` lists unfinished custom plots and illustrations as pending while the literature work proceeds. Run `figures.py RUN` after creating these assets. On rerender, prior images with matching critiques are archived under `figure-history/`.
+
+Open each output in `figures.json` and compare it to its source. Record the assessment and displayed hash in `figure-review.json`. Preserve prior critiques during revisions. A changed image or outstanding revision prevents the figure checkpoint. With no figures use `{"figures":[]}`.
 
 ```json
-{"figures":[{"path":"figures/result.pdf","source":"materials/results.csv","caption":"Measured values by condition."}]}
+{"figures":[{"id":"latency","sha256":"<hash from figures.json>","decision":"approve","assessment":"Compared all three bars with candidate_ms and inspected axis units."}]}
 ```
 
-The figures role should keep a reproducible source or the supplied original and use a caption that describes the measurement, units, and uncertainty if available. Use records with paths relative to the run. For a run with no figures, use an empty array. Put the title alone in `title.tex` and sections, abstract, figures, and tables in `body.tex`. Leave the preamble, title command, and bibliography rendering to the profile. Copy editable source and image files into the delivered source package.
+## Manuscript and PDF review
+
+Write the title alone in `title.tex` and the manuscript in `body.tex`. Use verified BibTeX keys and run-relative figure filenames. Keep preamble and bibliography rendering in the selected template. `tex.py preview RUN` compiles the draft, saves its sources and log, and renders page images. `preview.json` identifies the PDF, pages and review directory. On Windows `--wsl-distro NAME` selects a WSL TeX installation.
+
+Save four JSON records to `reviews/<preview-id>/` as `methods.json`, `evidence.json`, `presentation.json` and `layout.json`. Each reader inspects this PDF and its relevant evidence. The layout reader inspects every PNG and includes the one-based page numbers. Scores range from 1 (central problems) to 5 (ready on this dimension).
 
 ```json
-{"decision":"revise","findings":[{"severity":"major","location":"Results, paragraph 1","issue":"The cited measurements cover only one dataset.","resolution":"Narrow the claim or supply results from additional datasets."}]}
+{"pdf_sha256":"<hash from preview.json>","score":4,"assessment":"Describe what was checked and what the evidence showed.","decision":"revise","findings":[{"severity":"major","location":"Results, page 2","issue":"The stated speedup exceeds the measured range.","resolution":"Recalculate against the matched baseline."}]}
 ```
 
-Use `approve` for vetted drafts, `revise` for fixable issues, and `blocked` when the current evidence cannot support the requested paper. An approved review may record non-blocking limitations. Keep prior reports with unique names before writing a revised report. Only the final approved review enables a build.
+`reviews.py RUN` saves the scores, mean, findings, and decision in `review.json` and the version's review directory. Exit 2 means revise or blocked. Layout adds `"pages":[1,2]` for a two-page paper. An unresolved significant finding or blocking decision prevents publication regardless of mean score. Revisions receive fresh preview IDs and reviews. `tex.py build RUN` delivers the exact approved bytes and editable `latex-source/`.
 
-## Role briefs
+## Experiments
 
-- **Coordinator:** Convert evidence into a scoped contribution and a section-level outline. Capture the provenance of every table and headline number. Give workers explicit input files and distinct output files, and validate each handoff before proceeding.
-- **Literature:** Look for original work behind baselines and close alternatives to the contribution. Use more than one discovery route when the literature claim calls for it. Check the source itself and record a locator and supported statement. Check claims of novelty against closely related work.
-- **Figures:** Plot verified numbers with labels and units. Prefer an editable plot script for a derived chart. Use an explicit diagram for conceptual relationships. Mark illustrative figures accordingly.
-- **Writer:** Use a claim, method, evidence, and limitation structure appropriate to the venue. State baselines and evaluation setup. Use the same values, units, and conditions in prose, tables, and figures. Flag uncertain claims in the draft and tell the coordinator what evidence would settle them.
-- **Reviewer:** Compare claims with source rows, calculations, and cited passages. Check design, baselines, uncertainty, limitations, and unwarranted causal or novelty claims. Provide a location, concrete issue, and actionable resolution. A mismatched central result or unsupported central claim blocks approval.
-- **Production:** Compile the accepted sources, read the build log, and inspect the PDF for missing glyphs, unresolved references, misplaced graphics, and template requirements. Treat the selected template as formatting guidance. Submission suitability requires venue and researcher checks.
+Use `--mode planning` for a protocol or `--mode experiment` to run trials. Both start with `protocol.md`, `evidence-checklist.md` and `run.py mark RUN plan`. Include executable experiment code and input data in the original materials. Use `run.py brief RUN experiment --specialty evaluation`, adapting the specialty as needed.
+
+```json
+{"id":"lookup-1","hypothesis":"Indexing reduces latency on this fixed workload.","metric":"speedup","favorable":1.2,"unfavorable":1.0,"command":["python","materials/measure.py"],"timeout_seconds":60}
+```
+
+```sh
+python experiments.py register RUN trial.json
+python experiments.py execute RUN lookup-1
+python experiments.py summarize RUN
+python run.py mark RUN experiment
+```
+
+Register the hypothesis and thresholds before measurement. A smaller favorable threshold makes lower values better. The middle range is inconclusive. Execution runs the specified argument list in a fresh attempt directory with `materials/` snapshots. The command writes numeric metrics as a JSON object at the path in `SMPL_METRICS`. Logs, raw metrics and failed attempts remain on disk. A completed ID reuses its measurement and a failed attempt can be retried. Changed commands or hypotheses require new IDs. After summarizing, write `findings.md` with the measured outcome, limitations, next hypothesis or stopping reason. The registration, trial summary and raw metrics can become materials for a manuscript.

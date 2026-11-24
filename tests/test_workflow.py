@@ -9,6 +9,11 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / ".agents/skills/smpl-papers/scripts"))
 import run
 import tex
+import figures
+import reviews
+import sources
+from records import write_json
+from smoke_pdf import record_reviews
 
 
 class WorkflowTests(unittest.TestCase):
@@ -24,7 +29,10 @@ class WorkflowTests(unittest.TestCase):
         (self.root / name).write_text(text, encoding="utf-8")
 
     def writing(self):
-        return run.initialize(self.root, "writing", "starter", "utf-8-sig", [self.data])
+        manifest = run.initialize(self.root, "writing", "starter", "utf-8-sig", [self.data])
+        write_json(self.root / "workplan.json", {"sections": [{"id": "results", "title": "Results", "queries": []}],
+                                               "figures": []})
+        return manifest
 
     def outline(self, manifest):
         self.artifact("outline.md", "# Outline")
@@ -35,10 +43,13 @@ class WorkflowTests(unittest.TestCase):
 
     def branches(self, manifest):
         self.outline(manifest)
-        self.artifact("literature.json", '{"sources":[]}')
-        self.artifact("references.bib", "")
+        write_json(self.root / "citation-requests.json", {"sources": []})
+        sources.discover(self.root)
+        sources.verify(self.root)
+        self.artifact("related-work.md", "No external claims in this fixture.")
         run.mark(self.root, manifest, "literature")
-        self.artifact("figures.json", '{"figures":[]}')
+        figures.render(self.root)
+        self.artifact("figure-review.json", '{"figures":[]}')
         run.mark(self.root, manifest, "figures")
 
     def draft(self, manifest):
@@ -47,9 +58,20 @@ class WorkflowTests(unittest.TestCase):
         self.artifact("body.tex", "Condition A scored 3.")
         run.mark(self.root, manifest, "draft")
 
-    def approve(self, manifest):
+    def reviewed_preview(self, manifest):
         self.draft(manifest)
-        self.artifact("review.json", '{"decision":"approve","findings":[]}')
+        def fake_pages(pdf, folder):
+            (folder / "page-1.png").write_bytes(b"fixture page")
+            return ["page-1.png"]
+        with patch.object(tex, "compile_pdf", return_value=b"%PDF-fixture"), patch.object(tex, "render_pages", fake_pages):
+            candidate = tex.preview(self.root, None, self.base / "cache")
+        manifest.update(run.load_json(self.root / "run.json"))
+        record_reviews(self.root, candidate)
+        return self.root / "reviews" / candidate["id"]
+
+    def approve(self, manifest):
+        self.reviewed_preview(manifest)
+        reviews.decide(self.root)
         run.mark(self.root, manifest, "review")
 
     def test_encoding_preserves_text_and_handles_non_utf8(self):
@@ -114,26 +136,53 @@ class WorkflowTests(unittest.TestCase):
 
     def test_unresolved_major_review_blocks_build(self):
         manifest = self.writing()
-        self.draft(manifest)
-        self.artifact("review.json", '{"decision":"approve","findings":[{"severity":"major"}]}')
-        with self.assertRaisesRegex(ValueError, "unresolved major"):
+        folder = self.reviewed_preview(manifest)
+        path = folder / "evidence.json"
+        report = run.load_json(path)
+        report["findings"] = [{"severity": "major", "location": "Results", "issue": "Unsupported",
+                               "resolution": "Supply data"}]
+        write_json(path, report)
+        self.assertEqual(reviews.decide(self.root)["decision"], "revise")
+        with self.assertRaisesRegex(ValueError, "revise"):
             run.mark(self.root, manifest, "review")
         with self.assertRaisesRegex(ValueError, "current approved"):
             tex.build(self.root, None, self.base / "cache")
+
+    def test_dispatch_uses_pending_branches_and_current_pdf(self):
+        manifest = self.writing()
+        self.outline(manifest)
+        ready = run.next_work(self.root, manifest)
+        self.assertEqual([r["role"] for r in ready["assignments"]], ["literature", "figures"])
+        self.assertEqual(ready["helper"][-2:], ["prepare", str(self.root)])
+        folder = self.reviewed_preview(manifest)
+        layout = folder / "layout.json"
+        report = run.load_json(layout)
+        layout.unlink()
+        self.assertEqual([r["role"] for r in run.next_work(self.root, manifest)["assignments"]], ["layout"])
+        write_json(layout, {**report, "pages": []})
+        with self.assertRaisesRegex(ValueError, "every rendered page"):
+            reviews.decide(self.root)
+        write_json(layout, {**report, "pdf_sha256": "other-version"})
+        with self.assertRaisesRegex(ValueError, "another PDF"):
+            reviews.decide(self.root)
+        write_json(layout, report)
+        reviews.decide(self.root)
+        run.mark(self.root, manifest, "review")
+        self.assertEqual(run.next_work(self.root, manifest)["stage"], "build")
 
     def test_failed_rebuild_does_not_present_stale_pdf_as_current(self):
         manifest = self.writing()
         self.approve(manifest)
         self.artifact("paper.pdf", "previous PDF")
-        with patch.object(tex, "compile_pdf", side_effect=ValueError("TeX failed")):
-            with self.assertRaisesRegex(ValueError, "TeX failed"):
+        with patch.object(tex.shutil, "copytree", side_effect=OSError("Publication failed")):
+            with self.assertRaisesRegex(OSError, "Publication failed"):
                 tex.build(self.root, None, self.base / "cache")
         updated = run.load_json(self.root / "run.json")
         self.assertEqual(updated["stages"]["build"]["status"], "failed")
         self.assertFalse(run.current(self.root, updated, "build"))
         self.assertFalse((self.root / "paper.pdf").exists())
         self.assertTrue((self.root / "paper.previous.pdf").exists())
-        self.assertIn("TeX failed", (self.root / "build.log").read_text(encoding="utf-8"))
+        self.assertIn("Publication failed", (self.root / "build.log").read_text(encoding="utf-8"))
 
     def test_bad_author_kit_checksum_never_extracts(self):
         cache = self.base / "cache"
