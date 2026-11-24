@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 
 PROJECT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT / ".agents/skills/research-orchestra/scripts"))
+sys.path.insert(0, str(PROJECT / ".agents/skills/smpl-papers/scripts"))
 import run
 import tex
 

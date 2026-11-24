@@ -4,15 +4,15 @@ SMPL Papers is a Codex skill for planning experiments and turning research evide
 
 ## Quick start
 
-1. Clone `smpl-works-hq/SMPL-Papers` and open the clone in Codex. The project skill is in `.agents/skills/research-orchestra/`. To use it in another project, copy that skill folder into the target project's `.agents/skills/` and open the project in Codex.
+1. Clone `smpl-works-hq/SMPL-Papers` and open the clone in Codex. The project skill is in `.agents/skills/smpl-papers/`. To use it in another project, copy that skill folder into the target project's `.agents/skills/` and open the project in Codex.
 2. Install Python 3.10 or later for the checkpoint and build helpers. PDF production also needs `pdflatex`, `bibtex`, and the usual LaTeX packages for the selected profile. On Windows, the build helper can use native TeX or WSL. On Ubuntu, the TeX Live base, recommended, extra, and recommended fonts packages cover the bundled profiles.
 3. Attach your files or give Codex their paths. Invoke the skill with a goal and, for a manuscript, a template preference. Use UTF-8 text where possible. The intake helper also accepts Windows-1252 with `--encoding cp1252`.
 
 The default writing example uses synthetic measurements and a fixed literature corpus.
 
-> Use `$research-orchestra` to draft and review a short paper from the files in `examples/lookup/`. Use the fixed citation fixture and the starter LaTeX template.
+> Use `$smpl-papers` to draft and review a short paper from the files in `examples/lookup/`. Use the fixed citation fixture and the starter LaTeX template.
 
-> Use `$research-orchestra` in research planning mode for `examples/planning/question.md`. Produce the protocol and evidence checklist.
+> Use SMPL Papers to plan the experiment in `examples/planning/question.md`. Produce the protocol and evidence checklist.
 
 Add “use Codex subagents” to the prompt if you want the parallel literature and figure assignments and a reviewer with fresh context. A single assistant can carry out all stages. Codex handles the reasoning and writing in the active chat. The Python helpers run locally and need only the standard library. Figure generation may use plotting tools available in your environment.
 
@@ -40,12 +40,12 @@ Each run defaults to `.smpl-runs/<name>/`. The run manifest and source snapshots
 To resume, ask Codex to continue a named run. The coordinator refreshes changed source files, checks status, and resumes from the earliest stale or missing checkpoint. A changed draft invalidates the prior approval. A failed rebuild leaves its error in `build.log` and retains the previously generated PDF as `paper.previous.pdf`.
 
 ```sh
-python .agents/skills/research-orchestra/scripts/run.py refresh .smpl-runs/my-paper
-python .agents/skills/research-orchestra/scripts/run.py status .smpl-runs/my-paper
-python .agents/skills/research-orchestra/scripts/tex.py build .smpl-runs/my-paper
+python .agents/skills/smpl-papers/scripts/run.py refresh .smpl-runs/my-paper
+python .agents/skills/smpl-papers/scripts/run.py status .smpl-runs/my-paper
+python .agents/skills/smpl-papers/scripts/tex.py build .smpl-runs/my-paper
 ```
 
-On Windows, add `--wsl-distro Ubuntu-22.04` to choose that specific WSL distribution, or omit it to prefer native TeX. See the skill's [workflow and artifact contracts](.agents/skills/research-orchestra/references/workflow.md) for diagnostics and file formats.
+On Windows, add `--wsl-distro Ubuntu-22.04` to choose that specific WSL distribution, or omit it to prefer native TeX. See the skill's [workflow and artifact contracts](.agents/skills/smpl-papers/references/workflow.md) for diagnostics and file formats.
 
 ## Templates
 

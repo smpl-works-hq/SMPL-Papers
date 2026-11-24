@@ -1,0 +1,4 @@
+interface:
+  display_name: "SMPL Papers"
+  short_description: "Plan experiments and produce reviewed research papers"
+  default_prompt: "Use $smpl-papers to plan an experiment or draft a reviewed manuscript from my research evidence."

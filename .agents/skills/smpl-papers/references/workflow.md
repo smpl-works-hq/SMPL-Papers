@@ -3,11 +3,11 @@
 Use a run directory distinct from the source materials. The Python commands work through Python 3.10 or later. Examples use `python` and project-relative paths from the repository root.
 
 ```text
-python .agents/skills/research-orchestra/scripts/run.py init .smpl-runs/paper --mode writing --template starter path/to/notes.md path/to/results.csv
-python .agents/skills/research-orchestra/scripts/run.py status .smpl-runs/paper
-python .agents/skills/research-orchestra/scripts/run.py mark .smpl-runs/paper outline
-python .agents/skills/research-orchestra/scripts/tex.py build .smpl-runs/paper
-python .agents/skills/research-orchestra/scripts/run.py refresh .smpl-runs/paper
+python .agents/skills/smpl-papers/scripts/run.py init .smpl-runs/paper --mode writing --template starter path/to/notes.md path/to/results.csv
+python .agents/skills/smpl-papers/scripts/run.py status .smpl-runs/paper
+python .agents/skills/smpl-papers/scripts/run.py mark .smpl-runs/paper outline
+python .agents/skills/smpl-papers/scripts/tex.py build .smpl-runs/paper
+python .agents/skills/smpl-papers/scripts/run.py refresh .smpl-runs/paper
 ```
 
 The coordinator alone updates checkpoints with `mark` after inspecting a stage's output. Add `--encoding cp1252` at initialization for Windows-1252 text. The default accepts UTF-8 with or without a BOM. Other supplied files are copied byte-for-byte. Each material needs a distinct basename. The initial paths in the run manifest are local and are used by `refresh` to copy changed inputs. Run `refresh` and then `status` before resuming. Keep the manifest and work directory with the project.
