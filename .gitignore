@@ -1,0 +1,8 @@
+/.smpl-runs/
+/outputs/
+/.template-cache/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.venv/

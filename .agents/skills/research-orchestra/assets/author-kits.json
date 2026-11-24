@@ -1,0 +1,12 @@
+{
+  "cvpr2025": {
+    "url": "https://codeload.github.com/cvpr-org/author-kit/zip/807fc55b0077286db244b2daf005100acde0ee0a",
+    "sha256": "5f88fc554470d7afe452f3e399f5399074cd891c07c8685c47d74690b8054851",
+    "members": ["cvpr.sty", "ieeenat_fullname.bst"]
+  },
+  "iclr2025": {
+    "url": "https://raw.githubusercontent.com/ICLR/Master-Template/05833d63fe48bbf250b144741ea77691018bb328/iclr2025.zip",
+    "sha256": "4f055e27111e2836e063b89f5274369fa328743c00eccb93788e7af2504d9e33",
+    "members": ["iclr2025_conference.sty", "iclr2025_conference.bst", "fancyhdr.sty", "natbib.sty"]
+  }
+}
